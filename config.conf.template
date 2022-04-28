@@ -1,0 +1,55 @@
+### distwalk ###
+# Time (in microsecs) that the server should spend to process each request
+computation_usecs=1000
+
+# Path to the client binary
+distwalk_client_cmd= ### TO BE FILLED ###
+
+# IP address of the server
+distwalk_server_name= ### TO BE FILLED (load-balancer public IP address) ###
+
+# Port number of the server
+distwalk_server_port=5001
+
+# Number of threads to be spawned by the client
+num_threads= ### TO BE FILLED ###
+
+# Number of sessions that each client thread must open during its work
+#
+# The total number of requests to be sent is evenly distributed among such
+# sessions (rounding, if needed).
+num_sessions=1000
+
+# Time (in secs) for which a specified sending rate must be sustained.
+ramp_step_secs=60
+
+# Path to file containing a sequence of sending rates to be used by each client
+# thread
+rates_file= ### TO BE FILLED ###
+
+### OpenStack ###
+# The ID of the Senlin cluster
+cluster_id= ### TO BE FILLED ###
+
+# The default *actual* metric to be exported from Monasca DB
+real_metric="cpu.utilization_perc"
+
+# The ID of the scaling group
+scale_group_id= ### TO BE FILLED (ID outputted by the Heat stack) ###
+
+# Path to SSH private key associated with the instances in the scaling group
+ssh_key= ### TO BE FILLED ###
+
+### Anomaly injection ###
+# Path to stress-ng binary
+stress_ng_cmd= ### TO BE FILLED ###
+
+# Path to file containing a sequence of values to configure anomaly injection
+injection_schedule_file= ### TO BE FILLED ###
+
+# Time (in secs) for which a specified sending rate must be sustained
+injection_step_secs=60
+
+# If applicable, the set of CPU cores to randomly choose from when injecting
+# anomalies (using `taskset` syntax)
+injection_cpu_aff=""
