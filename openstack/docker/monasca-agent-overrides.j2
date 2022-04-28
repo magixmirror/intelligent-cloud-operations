@@ -1,0 +1,12 @@
+{% extends parent_template %}
+
+{% block monasca_agent_header %}
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends \
+        libvirt-dev \
+        pkg-config \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+{% endblock %}
+
+{% set monasca_agent_pip_packages_append = ['/monasca-agent[libvirt]'] %}

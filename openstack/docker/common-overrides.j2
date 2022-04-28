@@ -1,0 +1,11 @@
+{% extends parent_template %}
+
+{% block footer %}
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends \
+        less \
+        net-tools \
+        tcpdump \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+{% endblock %}

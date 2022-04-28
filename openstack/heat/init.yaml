@@ -1,0 +1,219 @@
+heat_template_version: 2018-08-31
+
+description: >
+  Template to initialize the OpenStack environment. The instantiated resources
+  are the same that would be created by the initialization script provided by
+  kolla-ansible (see /usr/local/share/kolla-ansible/init-runonce, or
+  kolla-ansible/tools/init-runonce, if `kolla-ansible` is installed for development).
+
+parameters:
+  provider_net_cidr:
+    type: string
+    description: The provider network in CIDR notation
+    default: 10.0.2.0/24
+  provider_net_range_start:
+    type: string
+    description: Start of the IP allocation pool for the provider network
+    default: 10.0.2.150
+  provider_net_range_end:
+    type: string
+    description: End of the IP allocation pool for the provider network
+    default: 10.0.2.199
+  provider_net_gateway:
+    type: string
+    description: The IP of the gateway for the provider network
+    default: 10.0.2.1
+  self_serv_net_cidr:
+    type: string
+    description: The self-service network in CIDR notation
+    default: 10.0.0.0/24
+  self_serv_net_gateway:
+    type: string
+    description: The IP of the gateway for the self-service network
+    default: 10.0.0.1
+  self_serv_net_dns:
+    type: comma_delimited_list
+    description: The IPs of the DNS nameservers for the self-service network
+    default: [8.8.8.8]
+  admin_public_key:
+    type: string
+    description: The public key to be used for SSH access to VMs
+  ubuntu2004_minimal_image_location:
+    type: string
+    description: The URL to retrieve Ubuntu 20.04 LTS minimal image (no default password set)
+    default: https://cloud-images.ubuntu.com/minimal/releases/focal/release/ubuntu-20.04-minimal-cloudimg-amd64.img
+  lb_mgmt_subnet:
+    type: string
+    description: The ID or name of the Octavia management subnet
+    default: lb-mgmt-subnet
+  lb_router_ip:
+    type: string
+    description: The IP address for the LB router (to be picked outside provider net allocation pool)
+    default: 10.0.2.149
+
+resources:
+  provider_net:
+    type: OS::Neutron::ProviderNet
+    properties:
+      network_type: flat
+      name: provider
+      physical_network: physnet1
+      router_external: true
+      shared: true
+
+  provider_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network: { get_resource: provider_net }
+      name: provider-subnet
+      allocation_pools:
+        - start: { get_param: provider_net_range_start }
+          end: { get_param: provider_net_range_end }
+      cidr: { get_param: provider_net_cidr }
+      enable_dhcp: false
+      gateway_ip: { get_param: provider_net_gateway }
+
+  self_serv_net:
+    type: OS::Neutron::Net
+    properties:
+      name: self-serv-1
+
+  self_serv_subnet:
+    type: OS::Neutron::Subnet
+    properties:
+      network: { get_resource: self_serv_net }
+      name: self-serv-subnet-1
+      cidr: { get_param: self_serv_net_cidr }
+      gateway_ip: { get_param: self_serv_net_gateway }
+      dns_nameservers: { get_param: self_serv_net_dns }
+
+  provider_router:
+    type: OS::Neutron::Router
+    properties:
+      name: provider-router
+      distributed: false
+      external_gateway_info:
+        enable_snat: true
+        network: { get_resource: provider_net }
+
+  provider_router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router: { get_resource: provider_router }
+      subnet: { get_resource: self_serv_subnet }
+
+  lb_router:
+    type: OS::Neutron::Router
+    properties:
+      name: lb-router
+      distributed: false
+      external_gateway_info:
+        enable_snat: true
+        external_fixed_ips:
+          - ip_address: { get_param: lb_router_ip }
+            subnet: { get_resource: provider_subnet }
+        network: { get_resource: provider_net }
+
+  lb_router_interface:
+    type: OS::Neutron::RouterInterface
+    properties:
+      router: { get_resource: lb_router }
+      subnet: { get_param: lb_mgmt_subnet }
+
+  basic_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: basic-sec-group
+      description: ICMP, SSH, iperf2
+      rules:
+        - direction: egress
+          ethertype: IPv4
+        - direction: egress
+          ethertype: IPv6
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 5001
+          port_range_max: 5001
+        - direction: ingress
+          ethertype: IPv4
+          protocol: udp
+          port_range_min: 5001
+          port_range_max: 5001
+
+  admin_key:
+    type: OS::Nova::KeyPair
+    properties:
+      name: admin-key
+      public_key: { get_param: admin_public_key }
+
+  compute_quota:
+    type: OS::Nova::Quota
+    properties:
+      project: { get_param: "OS::project_id" }
+      cores: 40
+      instances: 40
+      ram: 96000
+
+  m1_tiny_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      flavorid: 1
+      name: m1.tiny
+      ram: 512
+      disk: 1
+      vcpus: 1
+
+  m1_small_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      flavorid: 2
+      name: m1.small
+      ram: 2048
+      disk: 20
+      vcpus: 1
+
+  m1_medium_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      flavorid: 3
+      name: m1.medium
+      ram: 4096
+      disk: 40
+      vcpus: 2
+
+  m1_large_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      flavorid: 4
+      name: m1.large
+      ram: 8192
+      disk: 80
+      vcpus: 4
+
+  m1_xlarge_flavor:
+    type: OS::Nova::Flavor
+    properties:
+      flavorid: 5
+      name: m1.xlarge
+      ram: 16384
+      disk: 160
+      vcpus: 8
+
+  ubuntu2004_minimal_image:
+    type: OS::Glance::WebImage
+    properties:
+      name: ubuntu-20.04-min
+      container_format: bare
+      disk_format: qcow2
+      visibility: public
+      location: { get_param: ubuntu2004_minimal_image_location }
+      # os_type: linux

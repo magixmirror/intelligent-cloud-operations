@@ -1,0 +1,31 @@
+# reference: https://opendev.org/openstack/monasca-agent/src/branch/master/docs/Libvirt.md
+init_config:
+  password: "{{ nova_keystone_password }}"
+  project_name: service
+  project_domain_id: default
+  username: nova
+  user_domain_id: default
+  auth_url: "{{ keystone_public_url }}"
+  endpoint_type: "publicURL"
+  cache_dir: /dev/shm
+  nova_refresh: 14400
+  metadata:
+    - scale_group
+  customer_metadata:
+    - scale_group
+  vm_probation: 300
+  alive_only: false
+  network_use_bits: false
+  vm_cpu_check_enable: True
+  vm_disks_check_enable: True
+  vm_network_check_enable: True
+  vm_ping_check_enable: True
+  vm_extended_disks_check_enable: False
+  host_aggregate_re: None
+  disk_collection_period: 0
+  vnic_collection_period: 0
+  # NOTE: libvirtd runs in nova_libvirt container, that is deployed on compute nodes only
+  libvirt_type: kvm
+  libvirt_uri: "qemu+tcp://{{ migration_interface_address | put_address_in_context('url') }}/system"
+instances:
+  - {}

@@ -1,0 +1,389 @@
+heat_template_version: 2018-08-31
+
+description: |
+  This template creates a Senlin-managed auto-scaling group of Nova instances that
+  is set to scale when Monasca notifies about (average) cpu utilization reaching
+  the lower or upper thresholds, for 3 times consequently. The auto-scaling group
+  also comes with self-healing capabilities. Adapted from:
+  - https://github.com/sjamgade/monasca-autoscaling/blob/master/final/autoscaling.yaml
+  - https://github.com/openstack/heat-templates/blob/master/hot/autoscaling.yaml
+  - https://github.com/openstack/heat-templates/blob/master/hot/senlin/cluster.yaml
+
+parameters:
+  image:
+    type: string
+    description: Name or ID of the image to use for the instances.
+    default: ubuntu-20.04-min-distwalk-4ca3b54
+  key_name:
+    type: string
+    description: Name or ID of the SSH key to login to the instances.
+    default: admin-key
+  protocol:
+    type: string
+    description: The protocol to use when contacting the LB.
+    default: TCP
+  protocol_port:
+    type: number
+    description: The port to use when contacting the LB.
+    default: 5001
+  network:
+    type: string
+    description: Name or ID of the network where to deploy the instances.
+    default: self-serv-1
+  subnet:
+    type: string
+    description: Name or ID of the subnet where to deploy the instances.
+    default: self-serv-subnet-1
+  external_network:
+    type: string
+    description: Name or ID of the network where to deploy the LB.
+    default: provider
+  external_subnet:
+    type: string
+    description: Name or ID of the subnet where to deploy the LB.
+    default: provider-subnet
+  scale_out_metric:
+    type: string
+    description: The metric to be tracked for triggering scale-out actions.
+    default: cpu.utilization_perc
+  scale_in_metric:
+    type: string
+    description: The metric to be tracked for triggering scale-in actions.
+    default: cpu.utilization_perc
+  scale_out_threshold:
+    type: number
+    description: The threshold that must be reached to trigger the scale-out policy.
+    default: 80
+  scale_in_threshold:
+    type: number
+    description: The threshold that must be reached to trigger the scale-in policy.
+    default: 15
+  auto_scaling_enabled:
+    type: boolean
+    description: Whether the scaling policies are automatically triggered by alarms.
+    default: true
+  cooldown:
+    type: number
+    description: The cooldown period in seconds.
+    default: 600
+  cluster_min_size:
+    type: number
+    description: The minimum number of instances in the cluster.
+    default: 2
+  cluster_max_size:
+    type: number
+    description: The maximum number of instances in the cluster.
+    default: 10
+  cluster_desired_size:
+    type: number
+    description: The desired number of instances in the cluster.
+    default: 2
+  instance_delay:
+    type: number
+    description: The seconds that an instance has to wait before starting its job.
+    default: 600
+  instance_cpu_policy:
+    type: string
+    description: The policy to be followed when pinning instances to the host CPU cores.
+    constraints:
+      - allowed_values: [shared, dedicated]
+    default: shared
+  destroy_after_deletion:
+    type: boolean
+    description: >
+      Whether an instance should be completely destroyed after being removed from
+      the group.
+    default: true
+  health_policy_enabled:
+    type: boolean
+    description: Whether the health policy is enabled.
+    default: true
+  lb_policy_method:
+    type: string
+    description: The method to be used by the LB to distribute requests among the instances.
+    constraints:
+      - allowed_values: [ROUND_ROBIN, LEAST_CONNECTIONS, SOURCE_IP]
+    default: ROUND_ROBIN
+  salt:
+    type: string
+    description: >
+      Set this parameter to any value (different from the current) to trigger the
+      regeneration of Monasca alarm definitions.
+    default: default
+
+conditions:
+  auto_scaling_enabled: {get_param: auto_scaling_enabled}
+
+resources:
+  flavor:
+    type: OS::Nova::Flavor
+    properties:
+      ram: 4096
+      disk: 20
+      vcpus: 1
+      extra_specs: { "hw:cpu_policy" : {get_param: instance_cpu_policy} }
+  sec_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      description: ICMP, SSH, iperf2
+      rules:
+        - direction: egress
+          ethertype: IPv4
+        - direction: egress
+          ethertype: IPv6
+        - direction: ingress
+          ethertype: IPv4
+          protocol: icmp
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+        - direction: ingress
+          ethertype: IPv4
+          protocol: tcp
+          port_range_min: {get_param: protocol_port}
+          port_range_max: {get_param: protocol_port}
+        - direction: ingress
+          ethertype: IPv4
+          protocol: udp
+          port_range_min: {get_param: protocol_port}
+          port_range_max: {get_param: protocol_port}
+  profile:
+    type: OS::Senlin::Profile
+    properties:
+      type: os.nova.server-1.0
+      properties:
+        flavor: {get_resource: flavor}
+        image: {get_param: image}
+        key_name: {get_param: key_name}
+        networks:
+          - network: {get_param: network}
+            security_groups:
+              - {get_resource: sec_group}
+        metadata: {"scale_group": {get_param: "OS::stack_id"}}
+        user_data:
+          str_replace:
+            template: |
+              #!/bin/bash -v
+              sleep $delay
+              # iperf -s -p $port 2>&1 > /home/ubuntu/iperf.log &
+              echo "Server started at: $(date -u +%Y-%m-%dT%H:%M:%SZ)" > /home/ubuntu/distwalk.log
+              /home/ubuntu/distwalk/dw_node -bp $port 2>&1 >> /home/ubuntu/distwalk.log &
+            params:
+              $delay: {get_param: instance_delay}
+              $port: {get_param: protocol_port}
+  cluster:
+    type: OS::Senlin::Cluster
+    properties:
+      desired_capacity: {get_param: cluster_desired_size}
+      max_size: {get_param: cluster_max_size}
+      min_size: {get_param: cluster_min_size}
+      profile: {get_resource: profile}
+  deletion_policy:
+    type: OS::Senlin::Policy
+    properties:
+      type: senlin.policy.deletion-1.1
+      bindings:
+        - cluster: {get_resource: cluster}
+      properties:
+        criteria: RANDOM
+        destroy_after_deletion: {get_param: destroy_after_deletion}
+        reduce_desired_capacity: false
+  health_policy:
+    type: OS::Senlin::Policy
+    depends_on: deletion_policy
+    properties:
+      type: senlin.policy.health-1.1
+      bindings:
+        - cluster: {get_resource: cluster}
+          enabled: {get_param: health_policy_enabled}
+      properties:
+        detection:
+          interval: 60
+          node_update_timeout: 420
+          detection_modes:
+            - type: NODE_STATUS_POLLING
+        recovery:
+          node_force_recreate: true
+          actions:
+            - name: RECREATE
+  lb_policy:
+    type: OS::Senlin::Policy
+    depends_on: health_policy
+    properties:
+      type: senlin.policy.loadbalance-1.3
+      bindings:
+        - cluster: {get_resource: cluster}
+      properties:
+        pool:
+          protocol: {get_param: protocol}
+          protocol_port: {get_param: protocol_port}
+          subnet: {get_param: subnet}
+          lb_method: {get_param: lb_policy_method}
+          id: {get_resource: pool}
+        vip:
+          subnet: {get_param: external_subnet}
+          protocol: {get_param: protocol}
+          protocol_port: {get_param: protocol_port}
+        health_monitor:
+          type: {get_param: protocol}
+          id: {get_resource: lb_monitor}
+        lb_status_timeout: 300
+        loadbalancer: {get_resource: lb}
+  lb:
+    type: OS::Octavia::LoadBalancer
+    properties:
+      vip_subnet: {get_param: external_subnet}
+  listener:
+    type: OS::Octavia::Listener
+    properties:
+      loadbalancer: {get_resource: lb}
+      protocol: {get_param: protocol}
+      protocol_port: {get_param: protocol_port}
+  pool:
+    type: OS::Octavia::Pool
+    properties:
+      listener: {get_resource: listener}
+      lb_algorithm: {get_param: lb_policy_method}
+      protocol: {get_param: protocol}
+  lb_monitor:
+    type: OS::Octavia::HealthMonitor
+    properties:
+      pool: {get_resource: pool}
+      type: {get_param: protocol}
+      delay: 1
+      max_retries: 5
+      timeout: 5
+  scale_in_policy:
+    type: OS::Senlin::Policy
+    depends_on: lb_policy
+    properties:
+      type: senlin.policy.scaling-1.0
+      bindings:
+        - cluster: {get_resource: cluster}
+      properties:
+        event: CLUSTER_SCALE_IN
+        adjustment:
+          type: CHANGE_IN_CAPACITY
+          number: 1
+          cooldown: {get_param: cooldown}
+  scale_out_policy:
+    type: OS::Senlin::Policy
+    depends_on: scale_in_policy
+    properties:
+      type: senlin.policy.scaling-1.0
+      bindings:
+        - cluster: {get_resource: cluster}
+      properties:
+        event: CLUSTER_SCALE_OUT
+        adjustment:
+          type: CHANGE_IN_CAPACITY
+          number: 1
+          cooldown: {get_param: cooldown}
+  scale_in_receiver:
+    type: OS::Senlin::Receiver
+    properties:
+      cluster: {get_resource: cluster}
+      action: CLUSTER_SCALE_IN
+      type: webhook
+  scale_out_receiver:
+    type: OS::Senlin::Receiver
+    properties:
+      cluster: {get_resource: cluster}
+      action: CLUSTER_SCALE_OUT
+      type: webhook
+  scale_out_notification:
+    type: OS::Monasca::Notification
+    condition: auto_scaling_enabled
+    properties:
+      type: webhook
+      address: {get_attr: [scale_out_receiver, channel, alarm_url]}
+  scale_in_notification:
+    type: OS::Monasca::Notification
+    condition: auto_scaling_enabled
+    properties:
+      type: webhook
+      address: {get_attr: [scale_in_receiver, channel, alarm_url]}
+  random_string:
+    type: OS::Heat::RandomString
+    condition: auto_scaling_enabled
+    properties:
+      length: 5
+      salt: {get_param: salt}
+  cpu_alarm_high:
+    type: OS::Monasca::AlarmDefinition
+    condition: auto_scaling_enabled
+    properties:
+      name:
+        str_replace:
+          template: CPU utilization beyond $threshold percent ($random)
+          params:
+            $threshold: {get_param: scale_out_threshold}
+            $random: {get_resource: random_string}
+      description:
+        str_replace:
+          template: CPU utilization beyond $threshold percent
+          params:
+            $threshold: {get_param: scale_out_threshold}
+      expression:
+        str_replace:
+          template: avg($metric{scale_group=$scale_group_id}) >= $threshold times 3
+          params:
+            $metric: {get_param: scale_out_metric}
+            $scale_group_id: {get_param: "OS::stack_id"}
+            $threshold: {get_param: scale_out_threshold}
+      severity: high
+      alarm_actions:
+        - {get_resource: scale_out_notification}
+      ok_actions: []
+      undetermined_actions: []
+  cpu_alarm_low:
+    type: OS::Monasca::AlarmDefinition
+    condition: auto_scaling_enabled
+    properties:
+      name:
+        str_replace:
+          template: CPU utilization below $threshold percent ($random)
+          params:
+            $threshold: {get_param: scale_in_threshold}
+            $random: {get_resource: random_string}
+      description:
+        str_replace:
+          template: CPU utilization below $threshold percent
+          params:
+            $threshold: {get_param: scale_in_threshold}
+      expression:
+        str_replace:
+          template: avg($metric{scale_group=$scale_group_id}) < $threshold times 3
+          params:
+            $metric: {get_param: scale_in_metric}
+            $scale_group_id: {get_param: "OS::stack_id"}
+            $threshold: {get_param: scale_in_threshold}
+      severity: low
+      alarm_actions:
+        - {get_resource: scale_in_notification}
+      ok_actions: []
+      undetermined_actions: []
+
+outputs:
+  scale_group_id:
+    description: The ID of the scaling group.
+    value: {get_param: "OS::stack_id"}
+  scale_out_webhook:
+    description: Webhook to scale out cluster.
+    value:
+      str_replace:
+        template: curl -X POST $link
+        params:
+          $link: {get_attr: [scale_out_receiver, channel, alarm_url]}
+  scale_in_webhook:
+    description: Webhook to scale in cluster.
+    value:
+      str_replace:
+        template: curl -X POST $link
+        params:
+          $link: {get_attr: [scale_in_receiver, channel, alarm_url]}
+  lb_ip_address:
+    value: {get_attr: [lb, vip_address]}
+    description: The IP address of the load-balancer.
