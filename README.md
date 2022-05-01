@@ -1,4 +1,4 @@
-[![GitHub license](https://img.shields.io/github/license/giacomolanciano/pintelligent-cloud-operations)](https://github.com/giacomolanciano/pintelligent-cloud-operations/blob/master/LICENSE)
+[![GitHub license](https://img.shields.io/github/license/giacomolanciano/intelligent-cloud-operations)](https://github.com/giacomolanciano/intelligent-cloud-operations/blob/master/LICENSE)
 [![DOI](https://zenodo.org/badge/485707047.svg)](https://zenodo.org/badge/latestdoi/485707047)
 
 # Intelligent Cloud Operations
