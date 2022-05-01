@@ -1,0 +1,39 @@
+{
+    "upload_type": "software",
+    "description": "Companion repo of the paper \"A 2-phase Strategy For Intelligent Cloud Operations\" (<a href=\"https://github.com/giacomolanciano/intelligent-cloud-operations\">https://github.com/giacomolanciano/intelligent-cloud-operations</a>)",
+    "language": "eng",
+    "title": "Archival bundle of the code used for \"A 2-phase Strategy For Intelligent Cloud Operations\"",
+    "license": {
+        "id": "GPL-3.0"
+    },
+    "creators": [
+        {
+            "orcid": "0000-0002-7431-8041",
+            "affiliation": "Scuola Normale Superiore, Italy",
+            "name": "Lanciano, Giacomo"
+        },
+        {
+            "orcid": "0000-0002-0362-0657",
+            "affiliation": "Scuola Superiore Sant'Anna, Italy",
+            "name": "Cucinotta, Tommaso"
+        },
+        {
+            "orcid": "0000-0001-5213-2468",
+            "affiliation": "University of Pisa, Italy",
+            "name": "Bacciu, Davide"
+        },
+        {
+            "orcid": "0000-0002-1694-612X",
+            "affiliation": "National Research Council, Italy",
+            "name": "Passarella, Andrea"
+        }
+    ],
+    "access_right": "open",
+    "related_identifiers": [
+        {
+            "scheme": "url",
+            "identifier": "https://github.com/giacomolanciano/intelligent-cloud-operations",
+            "relation": "isSupplementTo"
+        }
+    ]
+}
