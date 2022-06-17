@@ -5,26 +5,9 @@
 
 This repo contains the companion material of the paper
 
-**A 2-phase Strategy For Intelligent Cloud Operations**<br>
+**Towards Intelligent Cloud Operations**<br>
 [Giacomo Lanciano](mailto:giacomo.lanciano@sns.it)\* Tommaso Cucinotta, Davide Bacciu, Andrea Passarella<br>
 *Under review*<br>
-
-*Abstract:* The health status of production-grade cloud applications is usually continuously assessed by monitoring
-relevant KPIs, in order to meet the established Service Level Agreements (SLAs). Using (complex) automations, it is
-possible to detect anomalous behaviors and alert the on-call personnel to start troubleshooting activities or, to a
-certain extent, trigger automated healing procedures to prevent a system outage. Traditionally, such automations are
-either based on static thresholds set on relevant metrics or on predefined pattern-matching rules to be checked against
-logs. Defining and maintaining such rules quickly becomes cumbersome as soon as the size of an application grows and the
-interactions among its components become more complex. To overcome such issues, we propose a strategy for intelligent
-cloud operations that consists of two phases. First, we continuously monitor the system to detect anomalous operational
-conditions. In that case, we identify the faulty components and the best corrective action to bring the back to normal.
-Both phases rely on Machine Learning models learned directly from operational data and do not leverage on explicit
-alerting or automation rule. Our approach was validated on data exported from an OpenStack deployment, collected while
-generating a synthetic workload on a load-balanced group of VMs and injecting different types of faults. Our anomaly
-detection model can generalize to elastic VMs groups and reached a validation AUC of 95% and a test accuracy of 88.80%.
-Instead, the supervised classification model we trained to associate a corrective action to faulty VMs reached a test
-accuracy of 99.34%. The implementation of our approach and the material needed to reproduce our results are publicly
-made available under an open-source license.
 
 \* *contact author*
 
@@ -40,9 +23,9 @@ The test-bed used for our experiments is a Dell R630 dual-socket, equipped with:
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6509678.svg)](https://doi.org/10.5281/zenodo.6509678)
 
-The data used for this work are [publicly available](https://zenodo.org/record/6509678/files/INTOPS2022-data.tar.bz2).
-We recommend using our utility to automatically download, decompress and place such data in the location expected by our
-tools. To do that, make sure the required dependencies are installed by running
+The data used for this work are publicly available. We recommend using our utility to automatically download, decompress
+and place such data in the location expected by our tools. To do that, make sure the required dependencies are installed
+by running
 
 ```bash
 apt-get install pbzip2 tar wget
@@ -298,11 +281,3 @@ steps to apply to launch a new run:
 
    **NOTE:** After editing `notebooks/constants.py`, it may be necessary to restart the notebook kernels to fetch the
    update.
-
-<!-- ## Citation
-
-Please consider citing:
-
-```bibtex
-
-``` -->
