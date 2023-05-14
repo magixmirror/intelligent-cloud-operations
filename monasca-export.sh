@@ -5,8 +5,6 @@ set -o pipefail
 
 source config.conf
 
-metric="$real_metric"
-
 # NOTE: use arrays, not strings, to implement arguments lists that may end up
 # to be empty. If a variable is quoted to prevent undesired word splitting,
 # empty strings are expanded as "", whereas empty arrays are expanded as an
@@ -17,9 +15,9 @@ positional_params=()
 function usage() {
     cat << EOF
 
-Usage: $0 [OPTIONS] <START_DATE> <END_DATE> [<METRIC_NAME>]
+Usage: $0 [OPTIONS] <START_DATE> <END_DATE> <METRIC_NAME>
 
-Export measurements data from Monasca DB (default metric is '$metric').
+Export measurements data for the given metric from Monasca DB.
 
 Options:
     -h | --help     Print this message and exit
@@ -47,9 +45,15 @@ done
 # restore positional parameters
 set -- "${positional_params[@]}"
 
-if [[ -n $3 ]]; then
-    metric="$3"
+metric="$3"
+if [[ -z $metric ]]; then
+    echo "ERROR: metric name not provided"
+    exit 1
 fi
+
+scale_group_id=$(
+    openstack stack show -f json "$stack_name" | jq -r '.id // empty'
+)
 
 monasca measurement-list "${json_params[@]}" \
     --group_by "*" \

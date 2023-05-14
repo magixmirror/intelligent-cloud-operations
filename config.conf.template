@@ -1,55 +1,56 @@
 ### distwalk ###
-# Time (in microsecs) that the server should spend to process each request
-computation_usecs=1000
 
 # Path to the client binary
 distwalk_client_cmd= ### TO BE FILLED ###
 
-# IP address of the server
-distwalk_server_name= ### TO BE FILLED (load-balancer public IP address) ###
-
 # Port number of the server
-distwalk_server_port=5001
+server_port=5001
+
+# Time (in microsecs) that the server should spend processing each computing
+# request
+computation_usecs=0
+
+# Data (in bytes) that the server should write for each storage request
+storage_bytes=1048576 # 1024*1024
 
 # Number of threads to be spawned by the client
-num_threads= ### TO BE FILLED ###
+num_threads=3
 
 # Number of sessions that each client thread must open during its work
 #
 # The total number of requests to be sent is evenly distributed among such
 # sessions (rounding, if needed).
-num_sessions=1000
+num_sessions=5000
 
 # Time (in secs) for which a specified sending rate must be sustained.
 ramp_step_secs=60
 
 # Path to file containing a sequence of sending rates to be used by each client
 # thread
-rates_file= ### TO BE FILLED ###
+rates_file="./data/test_load_disk_01-2tpi.dat"
 
 ### OpenStack ###
-# The ID of the Senlin cluster
-cluster_id= ### TO BE FILLED ###
 
-# The default *actual* metric to be exported from Monasca DB
-real_metric="cpu.utilization_perc"
+# The timespamp format used by Monasca
+datetime_format="%Y-%m-%dT%H:%M:%SZ"
 
-# The ID of the scaling group
-scale_group_id= ### TO BE FILLED (ID outputted by the Heat stack) ###
+# The name of the Heat stack
+stack_name="dw-heat-asg"
 
 # Path to SSH private key associated with the instances in the scaling group
 ssh_key= ### TO BE FILLED ###
 
+nova_compute_config="/etc/kolla/nova-compute/nova.conf"
+
 ### Anomaly injection ###
-# Path to stress-ng binary
-stress_ng_cmd= ### TO BE FILLED ###
 
-# Path to file containing a sequence of values to configure anomaly injection
-injection_schedule_file= ### TO BE FILLED ###
-
-# Time (in secs) for which a specified sending rate must be sustained
+# The duration of an anomaly injection step (in secs)
 injection_step_secs=60
 
-# If applicable, the set of CPU cores to randomly choose from when injecting
-# anomalies (using `taskset` syntax)
-injection_cpu_aff=""
+# A range of values (e.g., 3-5) from which to randomly pick the number of steps
+# a single anomaly injection must be sustained for.
+injection_active_steps_lim=5-10
+
+# A range of values (e.g., 3-5) from which to randomly pick the number of 'idle'
+# steps between two anomaly injections.
+injection_paused_steps_lim=3-5

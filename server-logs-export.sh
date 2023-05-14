@@ -8,6 +8,10 @@ source config.conf
 log_file_prefix="$1"
 
 # retrieve distwalk servers logs
+cluster_id=$(
+    openstack stack resource list -f json "$stack_name" \
+        | jq -r '.[] | select(.resource_name == "cluster") | .physical_resource_id  // empty'
+)
 node_id_list=$(
     openstack cluster members list --filters status=ACTIVE --full-id \
         -f csv --quote none -c physical_id --sort-column index --sort-ascending "$cluster_id" \

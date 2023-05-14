@@ -1,13 +1,15 @@
 #!/bin/bash
 
 set -eo pipefail
+trap clean_exit EXIT
+trap "exit 1" SIGINT SIGTERM
 
 source config.conf
 
-fault_schedule_filename="$injection_schedule_file"
-fault_schedule=()
+main_pid=$$
 ip_list=()
 period_secs="$injection_step_secs"
+sched_file=""
 
 positional_params=()
 
@@ -18,15 +20,12 @@ Usage: $0 [OPTIONS]
 
 Inject temporary (LB-detectable) faults by stopping/restarting the distwalk server process.
 
-By default, when a fault schedule is specified (with '-f'), the same fault keeps on being injected
-on the same instance until a 0 appears in the schedule (i.e, fault momentum).
-
 Options:
-    -h | --help ............... Print this message and exit
-    -f /path/to/schedule.dat .. Read fault schedule from file
-    -p <PERIOD> ............... The amount of time (seconds) the fault should be injected for. If
-                                '-f' is specified, each entry will be considered for this period,
-                                sequentially.
+    -h | --help ........................ Print this message and exit
+    --out-sched </path/to/out.dat> ..... Output generated injection schedule
+    -p <PERIOD> ........................ The amount of time (seconds) the fault should be injected for. If
+                                         '-f' is specified, each entry will be considered for this period,
+                                         sequentially.
 
 EOF
 }
@@ -62,7 +61,7 @@ function restore_node() {
         #    'nohup'.
         #
         ssh -oStrictHostKeyChecking=no -i "$ssh_key" ubuntu@"$ip_addr" \
-            "sudo bash -c '/home/ubuntu/distwalk/dw_node -bp $distwalk_server_port 2>&1 >> /home/ubuntu/distwalk.log &' > /dev/null 2>&1"
+            "sudo bash -c '/home/ubuntu/distwalk/src/dw_node -bp $server_port -s /home/ubuntu/distwalk_storage -m 5368709120 2>&1 >> /home/ubuntu/distwalk.log &' > /dev/null 2>&1"
     fi
 }
 
@@ -73,15 +72,18 @@ function restore_cluster() {
     done
 }
 
-function clean_up() {
+function kill_bg_procs() {
+    echo "INFO: Killing all background processes..."
+
+    pkill -SIGTERM -e -P $main_pid || true
+}
+
+function clean_exit() {
     echo "INFO: Cleaning up before exiting..."
-    # wait for possible distwalk start/stop commands still in progress
-    sleep 3
+    kill_bg_procs
     restore_cluster
     echo "Done."
 }
-
-trap "{ clean_up; exit 1; }" SIGINT SIGTERM
 
 # parameter parsing
 while [[ $# -gt 0 ]]; do
@@ -90,8 +92,8 @@ while [[ $# -gt 0 ]]; do
             usage
             exit 0
             ;;
-        -f)
-            fault_schedule_filename="$2"
+        --out-sched)
+            sched_file="$2"
             shift
             ;;
         -p)
@@ -105,49 +107,75 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# read cpu load schedule from file
-if [[ -n $fault_schedule_filename ]]; then
-    fault_schedule_filename=$(realpath "$fault_schedule_filename")
-    mapfile -t fault_schedule < <(grep -E "^[[:digit:]]+" "$fault_schedule_filename")
+# retrieve group members' IP addresses
+group_id=$(
+    openstack stack resource list -f json "$stack_name" \
+        | jq -r '.[] | select(.resource_name == "server_group") | .physical_resource_id // empty'
+)
+mapfile -t ip_list < <(
+    openstack server group show -f json "$group_id" \
+        | jq -r '.members[] // empty' \
+        | xargs -P 0 -n 1 openstack server show -f json -c addresses \
+        | jq -r '.addresses."self-serv-1" | .[] // empty'
+)
+echo "INFO: the following IP addresses were detected: ${ip_list[*]}"
+
+# create the injection schedule file
+if [[ -n $sched_file ]]; then
+    touch "$sched_file"
 fi
 
-# retrieve cluster members' IP addresses
-mapfile -t ip_list < <(
-    openstack cluster members list --filters status=ACTIVE -f value -c physical_id --full-id "$cluster_id" \
-        | xargs -P 0 -n 1 openstack server show -f value -c addresses \
-        | cut -d'=' -f2 | LC_ALL='C' sort -t'.' -k4 -n
-)
+while true; do
+    echo
+    echo
 
-echo "Configuration:"
-echo "  - fault schedule: $fault_schedule_filename"
-echo "  - period: $period_secs"
-echo "  - IP list: ${ip_list[*]}"
+    # NOTE: pick random host
+    victim_ip="${ip_list[RANDOM % ${#ip_list[@]}]}"
+    echo "INFO: '$victim_ip' was selected for injection."
 
-victim_ip=""
-for fault in "${fault_schedule[@]}"; do
-    if [[ $fault -eq 0 ]]; then
-        echo "INFO: No faults to inject during this period"
+    # NOTE: pick random durations for paused and active phases
+    paused_steps=$(shuf -n 1 -i "$injection_paused_steps_lim")
+    paused_secs=$((paused_steps * period_secs))
 
-        if [[ -n $victim_ip ]]; then
-            restore_node "$victim_ip"
+    active_steps=$(shuf -n 1 -i "$injection_active_steps_lim")
+    active_secs=$((active_steps * period_secs))
 
-            # reset victim IP
-            victim_ip=""
-        fi
-    else
-        if [[ -z $victim_ip ]]; then
-            # stress injection is entering an active phase
-            echo "INFO: selecting random IP address from list"
-            victim_ip="${ip_list[RANDOM % ${#ip_list[@]}]}"
+    # Begin fault injection paused phase
+    echo "INFO: Entering paused phase for $paused_secs seconds..."
+    # NOTE: start 'sleep' as a background process to facilitate clean-up
+    # if the script is interrupted
+    sleep $paused_secs &
+    sleep_pid=$!
 
-            inject_fault "$victim_ip"
-        else
-            echo "INFO: Fault continuing on '$victim_ip'"
-        fi
+    # Update the injection schedule
+    if [[ -n $sched_file ]]; then
+        echo "INFO: Updating injection schedule..."
+        for ((i = 0; i < paused_steps; i++)); do
+            echo "0" >> "$sched_file"
+        done
+        for ((i = 0; i < active_steps; i++)); do
+            echo "1" >> "$sched_file"
+        done
     fi
 
-    echo "INFO: Sleeping..."
-    sleep "$period_secs"
+    # End fault injection paused phase
+    wait $sleep_pid
+
+    # Begin fault injection active phase
+    echo "INFO: Entering active phase for $active_secs seconds..."
+
+    inject_fault "$victim_ip"
+
+    # NOTE: start 'sleep' as a background process to facilitate clean-up
+    # if the script is interrupted
+    sleep $active_secs &
+    sleep_pid=$!
+
+    # End fault injection active phase
+    wait $sleep_pid
+    restore_node "$victim_ip"
 done
 
-restore_cluster
+# NOTE: this code will never be reached, it is just to please shellcheck
+clean_exit
+exit 0

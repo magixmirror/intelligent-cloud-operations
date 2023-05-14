@@ -1,13 +1,17 @@
 #!/bin/bash
 
 set -eo pipefail
+trap kill_bg_procs EXIT
+trap "exit 1" SIGINT SIGTERM
 
 source config.conf
 
-cpu_load_filename="$injection_schedule_file"
-cpu_load_perc=(100)
-cpu_taskset_string="$injection_cpu_aff"
-period="$injection_step_secs"
+main_pid=$$
+hog_cpu=0
+hog_disk=1
+cpu_load_perc=100
+period_secs="$injection_step_secs"
+sched_file=""
 
 positional_params=()
 
@@ -18,42 +22,73 @@ Usage: $0 [OPTIONS]
 
 Run an instance of stress-ng with sensible defaults.
 
-By default, when a cpu load schedule is specified (with '-f'), the same stress-ng instance keeps on
-being pinned on the same CPU core until a 0 appears in the schedule (i.e, core pinning momentum).
-
 Options:
-    -h | --help ............... Print this message and exit
-    -c <CPU_CORES> ............ Set of CPU cores to randomly choose from (to be specified using
-                                \`taskset\` syntax)
-    -f /path/to/schedule.dat .. Read cpu load schedule from file
-    -l <CPU_PERC> ............. The ideal cpu load to be exercised (default 100%)
-    -p <PERIOD> ............... The amount of time the stress should be applied for. It is possible
-                                to either specify a plain number of seconds or juxtapposing a suffix
-                                like 'm' for minutes, 'h' for hours, etc (default 1m). If '-f' is
-                                specified, each entry will be considered for this period, sequentially.
+    -h | --help ......................... Print this message and exit
+    --cpu ............................... Hog CPU
+    --disk .............................. Hog disk
+    -l <CPU_PERC> ....................... The ideal cpu load to be exercised (default 100%)
+    --out-sched </path/to/out.dat> ...... Output generated injection schedule
+    -p <PERIOD> ......................... The amount of time the stress should be applied for. It is possible
+                                          to either specify a plain number of seconds or juxtapposing a suffix
+                                          like 'm' for minutes, 'h' for hours, etc (default 1m). If '-f' is
+                                          specified, each entry will be considered for this period, sequentially.
 
 EOF
 }
 
-# TODO add support for >1 parallel instances
-# -n <NUM_STRESS> ........... The number of stress-ng instances to run (default 1)
+function kill_bg_procs() {
+    echo "INFO: Killing all background processes..."
 
+    if [[ ${#host_list[@]} -gt 0 ]]; then
+        for host in "${host_list[@]}"; do
+            if [[ $host != $(hostname) ]]; then
+                echo "INFO: Cleaning up '$host'..."
+                # NOTE: 'ssh -f' is required for all the host to be properly cleaned
+                ssh -f "$host" sudo pkill -SIGTERM stress-ng
+            fi
+        done
+    fi
+
+    pkill -SIGTERM -e -P $main_pid || true
+}
+
+bypass_cgroup() {
+    echo "INFO: bypassing cgroups settings..."
+
+    # wait for stress-ng to fork()
+    sleep 1
+
+    cgroup_path=/sys/fs/cgroup/cpu/cgroup.procs
+    if [ ! -f $cgroup_path ]; then
+        cgroup_path=/sys/fs/cgroup/cgroup.procs
+    fi
+
+    # move process out of /sys/fs/cgroup/cpu/user.slice
+    pidof stress-ng | tr " " "\n" | xargs -I{} -n 1 sudo bash -c "echo {} >> $cgroup_path"
+    # ppid=($(ps -C stress-ng -o pid=))
+    # echo ${ppid[0]} >> $cgroup_path
+
+}
+
+# parameters parsing
 while [[ $# -gt 0 ]]; do
     case $1 in
         -h | --help)
             usage
             exit 0
             ;;
-        -c)
-            cpu_taskset_string="$2"
-            shift
+        --cpu)
+            hog_cpu=1
             ;;
-        -f)
-            cpu_load_filename="$2"
+        --disk)
+            hog_disk=1
+            ;;
+        --out-sched)
+            sched_file="$2"
             shift
             ;;
         -p)
-            period="$2"
+            period_secs="$2"
             shift
             ;;
         *)
@@ -63,16 +98,68 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# read cpu load schedule from file
-if [[ -n $cpu_load_filename ]]; then
-    cpu_load_filename=$(realpath "$cpu_load_filename")
-    mapfile -t cpu_load_perc < <(grep -E "^[[:digit:]]+" "$cpu_load_filename")
+# retrieve the name of the host for each group member
+group_id=$(
+    openstack stack resource list -f json "$stack_name" \
+        | jq -r '.[] | select(.resource_name == "server_group") | .physical_resource_id // empty'
+)
+mapfile -t host_list < <(
+    openstack server group show -f json "$group_id" \
+        | jq -r '.members[] // empty' \
+        | xargs -P 0 -n 1 openstack server show -f value -c 'OS-EXT-SRV-ATTR:host'
+)
+echo "INFO: the following compute hosts were detected: ${host_list[*]}"
+
+# create the injection schedule file
+if [[ -n $sched_file ]]; then
+    touch "$sched_file"
 fi
 
-# expand CPU cores list
-cpu_taskset_list=()
-if [[ -n $cpu_taskset_string ]]; then
-    for item in $(echo "$cpu_taskset_string" | tr ',' '\n' | sed -e 's/ //g'); do
+while true; do
+    echo
+    echo
+
+    # NOTE: pick random host
+    victim_host="${host_list[RANDOM % ${#host_list[@]}]}"
+    echo "INFO: '$victim_host' host was selected for injection."
+    remote_cmd="ssh $victim_host"
+    if [[ $victim_host == $(hostname) ]]; then
+        remote_cmd=""
+    fi
+
+    # NOTE: pick random durations for paused and active phases
+    paused_steps=$(shuf -n 1 -i "$injection_paused_steps_lim")
+    paused_secs=$((paused_steps * period_secs))
+
+    active_steps=$(shuf -n 1 -i "$injection_active_steps_lim")
+    active_secs=$((active_steps * period_secs))
+
+    # Begin stress injection paused phase
+    echo "INFO: Entering paused phase for $paused_secs seconds..."
+    # NOTE: start 'sleep' as a background process to facilitate clean-up
+    # if the script is interrupted
+    sleep $paused_secs &
+    sleep_pid=$!
+
+    # Update the injection schedule
+    if [[ -n $sched_file ]]; then
+        echo "INFO: Updating injection schedule..."
+        for ((i = 0; i < paused_steps; i++)); do
+            echo "0" >> "$sched_file"
+        done
+        for ((i = 0; i < active_steps; i++)); do
+            echo "1" >> "$sched_file"
+        done
+    fi
+
+    # Expand dedicated CPU cores list for the selected host
+    cpu_taskset_list=()
+    cpu_taskset_string=$(
+        $remote_cmd sudo grep 'cpu_dedicated_set' /etc/kolla/nova-compute/nova.conf \
+            | sed -e 's/ //g' \
+            | cut -d'=' -f2
+    )
+    for item in $(echo "$cpu_taskset_string" | tr ',' '\n'); do
         if [[ $item =~ ^[0-9]+$ ]]; then
             cpu_taskset_list+=("$item")
         elif [[ $item =~ ^[0-9]+-[0-9]+$ ]]; then
@@ -84,48 +171,44 @@ if [[ -n $cpu_taskset_string ]]; then
             exit 1
         fi
     done
-fi
+    echo "INFO: the following dedicated CPU cores were detected: ${cpu_taskset_list[*]}"
+    taskset_params=("--taskset" "$cpu_taskset_string")
 
-echo "Configuration:"
-echo "  - load schedule: $cpu_load_filename"
-echo "  - period: $period"
-echo "  - taskset: ${cpu_taskset_list[*]}"
-
-core_pinning_momentum=0
-taskset_params=()
-for load in "${cpu_load_perc[@]}"; do
-    if [[ $load -eq 0 ]]; then
-        # stress injection is entering a cooldown phase, no need to pin the process
-        core_pinning_momentum=0
-        taskset_params=()
-    elif [[ $core_pinning_momentum -eq 0 ]]; then
-        echo "INFO: selecting random CPU core from taskset list"
-
-        # stress injection is entering an active phase
-        core_pinning_momentum=1
-        taskset_params=("--taskset" "${cpu_taskset_list[RANDOM % ${#cpu_taskset_list[@]}]}")
+    hogs_params=()
+    if [[ $hog_cpu -eq 1 ]]; then
+        hogs_params+=("--cpu" "${#cpu_taskset_list[@]}" "--cpu-method" "rand" "--cpu-load-slice" "100" "-l" "$cpu_load_perc")
     fi
 
-    if [[ ${#taskset_params[@]} -gt 0 ]]; then
-        echo "INFO: stress-ng pinned to core ${taskset_params[-1]}"
-    else
-        reason=""
-        if [[ $load -eq 0 ]]; then
-            reason="(load is 0%)"
-        fi
-        echo "INFO: taskset parameters not provided $reason"
+    if [[ $hog_disk -eq 1 ]]; then
+        # NOTE: make sure that the stressed disk is the same used by OpenStack services
+        hogs_params+=("--hdd" "${#cpu_taskset_list[@]}" "--temp-path" "/var/lib/docker/volumes")
     fi
 
-    # NOTE: setting '-c' to >1 is not convenient in our case, as the load (specified by '-l') is
-    # distributed across the 'threads'. If the same load level should be maintained by multiple
-    # stress-ng instances, it might be better to start multiple processes instead.
-    $stress_ng_cmd --times -c 1 --cpu-method rand --cpu-load-slice 100 \
+    echo "INFO: stress-ng will be launched with the following parameters: "
+    echo "    ${taskset_params[*]} ${hogs_params[*]} --timeout $active_secs"
+
+    # End stress injection paused phase
+    wait $sleep_pid
+
+    # Begin stress injection active phase
+    echo "INFO: Entering active phase for $active_secs seconds..."
+
+    $remote_cmd sudo stress-ng \
         "${taskset_params[@]}" \
-        -l "$load" --timeout $period &
+        "${hogs_params[@]}" \
+        --timeout $active_secs \
+        --times &
 
-    # move process out of /sys/fs/cgroup/cpu/user.slice
-    sleep 1 # wait for stress-ng to fork()
-    pidof "$stress_ng_cmd" | tr " " "\n" | xargs -I{} -n 1 sudo bash -c "echo {} >> /sys/fs/cgroup/cpu/cgroup.procs"
-    pidof "$stress_ng_cmd" | tr " " "\n" | xargs -I{} -n 1 grep -r "^{}$" /sys/fs/cgroup/cpu/
+    if [[ -n $remote_cmd ]]; then
+        ssh $victim_host "sudo bash -c '$(typeset -f bypass_cgroup); bypass_cgroup'"
+    else
+        sudo bash -c "$(typeset -f bypass_cgroup); bypass_cgroup"
+    fi
+
+    # End stress injection active phase
     wait
 done
+
+# NOTE: this code will never be reached, it is just to please shellcheck
+kill_bg_procs
+exit 0
