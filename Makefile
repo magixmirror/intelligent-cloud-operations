@@ -1,13 +1,13 @@
 DEFAULT_VENV_DIR=.venv
 
-.PHONY: all py38
+.PHONY: all py3.10
 
-all: data py38
+all: data py3.10
 
-py38: $(DEFAULT_VENV_DIR)/py38/
+py3.10: $(DEFAULT_VENV_DIR)/py3.10/
 
-$(DEFAULT_VENV_DIR)/py38/:
-	python3.8 -m venv $@
+$(DEFAULT_VENV_DIR)/py%/:
+	python3.10 -m venv $@
 	$@/bin/pip install -U pip
 	$@/bin/pip install -r pip-requirements.txt
 	$@/bin/pip install -r pip-requirements-dev.txt
@@ -15,5 +15,5 @@ $(DEFAULT_VENV_DIR)/py38/:
 	@echo "Run \`source $@/bin/activate\` to start the virtual env."
 
 data:
-	wget https://zenodo.org/record/6509678/files/INTOPS2022-data.tar.bz2
-	tar --use-compress-program=pbzip2 -xvf INTOPS2022-data.tar.bz2
+	wget https://zenodo.org/record/7934656/files/INTOPS2023-data.tar.bz2
+	tar --use-compress-program=pbzip2 -xvf INTOPS2023-data.tar.bz2
