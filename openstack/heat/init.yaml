@@ -1,6 +1,6 @@
 heat_template_version: 2018-08-31
 
-description: >
+description: |
   Template to initialize the OpenStack environment. The instantiated resources
   are the same that would be created by the initialization script provided by
   kolla-ansible (see /usr/local/share/kolla-ansible/init-runonce, or
@@ -10,34 +10,46 @@ parameters:
   provider_net_cidr:
     type: string
     description: The provider network in CIDR notation
-    default: 10.0.2.0/24
+    default: 10.17.2.0/24
   provider_net_range_start:
     type: string
     description: Start of the IP allocation pool for the provider network
-    default: 10.0.2.150
+    default: 10.17.2.150
   provider_net_range_end:
     type: string
     description: End of the IP allocation pool for the provider network
-    default: 10.0.2.199
+    default: 10.17.2.199
   provider_net_gateway:
     type: string
     description: The IP of the gateway for the provider network
-    default: 10.0.2.1
+    default: 10.17.2.1
   self_serv_net_cidr:
     type: string
     description: The self-service network in CIDR notation
-    default: 10.0.0.0/24
+    default: 10.17.3.0/24
   self_serv_net_gateway:
     type: string
     description: The IP of the gateway for the self-service network
-    default: 10.0.0.1
+    default: 10.17.3.1
   self_serv_net_dns:
     type: comma_delimited_list
     description: The IPs of the DNS nameservers for the self-service network
     default: [8.8.8.8]
   admin_public_key:
     type: string
-    description: The public key to be used for SSH access to VMs
+    description: The public key to be used for SSH access to VMs (<DEPLOY-NODE-NAME>:/home/stack/.ssh/id_rsa.pub)
+  cirros_image_location:
+    type: string
+    description: The URL to retrieve CirrOS image (default password is 'gocubsgo')
+    default: https://github.com/cirros-dev/cirros/releases/download/0.5.1/cirros-0.5.1-x86_64-disk.img
+  ubuntu1804_image_location:
+    type: string
+    description: The URL to retrieve Ubuntu 18.04 LTS image (no default password set)
+    default: https://cloud-images.ubuntu.com/bionic/current/bionic-server-cloudimg-amd64.img
+  ubuntu2004_image_location:
+    type: string
+    description: The URL to retrieve Ubuntu 20.04 LTS image (no default password set)
+    default: https://cloud-images.ubuntu.com/focal/current/focal-server-cloudimg-amd64.img
   ubuntu2004_minimal_image_location:
     type: string
     description: The URL to retrieve Ubuntu 20.04 LTS minimal image (no default password set)
@@ -49,7 +61,7 @@ parameters:
   lb_router_ip:
     type: string
     description: The IP address for the LB router (to be picked outside provider net allocation pool)
-    default: 10.0.2.149
+    default: 10.17.2.149
 
 resources:
   provider_net:
@@ -208,12 +220,12 @@ resources:
       disk: 160
       vcpus: 8
 
-  ubuntu2004_minimal_image:
+  ubuntu2004_image:
     type: OS::Glance::WebImage
     properties:
-      name: ubuntu-20.04-min
+      name: ubuntu-20.04
       container_format: bare
       disk_format: qcow2
       visibility: public
-      location: { get_param: ubuntu2004_minimal_image_location }
+      location: { get_param: ubuntu2004_image_location }
       # os_type: linux

@@ -13,7 +13,7 @@ init_config:
     - scale_group
   customer_metadata:
     - scale_group
-  vm_probation: 300
+  vm_probation: 0
   alive_only: false
   network_use_bits: false
   vm_cpu_check_enable: True

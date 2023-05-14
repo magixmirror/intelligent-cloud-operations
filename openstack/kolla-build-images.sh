@@ -1,13 +1,16 @@
 #!/bin/bash
 
-set -e
-set -o pipefail
+set -eo pipefail
 
 cleanup_kolla_images=0
 prune_kolla_images=0
 config_file="./etc/kolla/kolla-build.conf"
 test_work_dir="./docker/kolla-build-wd/"
 
+# NOTE: use arrays, not strings, to implement arguments lists that may end up
+# to be empty. If a variable is quoted to prevent undesired word splitting,
+# empty strings are expanded as "", whereas empty arrays are expanded as an
+# actual empty string.
 profile_args=("--profile" "retis")
 skip_existing_args=("--skip-existing")
 skip_parents_args=()
@@ -103,17 +106,19 @@ kolla-build \
     -b ubuntu \
     -t source \
     --config-file "$config_file" \
-    --openstack-branch stable/victoria \
-    --openstack-release victoria \
-    --tag victoria \
+    --openstack-release yoga \
+    --push \
+    --registry "<TO BE FILLED>:5001" \
+    --tag yoga \
     --template-override docker/common-overrides.j2 \
+    --template-override docker/grafana-overrides.j2 \
     --template-override docker/monasca-agent-overrides.j2 \
     "$@"
 
 if [[ $prune_kolla_images == 1 ]]; then
     echo "Removing orphaned local Kolla images..."
 
-    kolla-ansible prune-images --yes-i-really-really-mean-it
+    kolla-ansible -i ansible/multinode prune-images --yes-i-really-really-mean-it
     prune_warning
 
     echo "Done."

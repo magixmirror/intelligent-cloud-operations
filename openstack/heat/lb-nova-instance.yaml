@@ -1,0 +1,82 @@
+heat_template_version: 2018-08-31
+
+description: |
+  Template to create a load-balanced Nova instance (adapted from
+  https://github.com/openstack/heat-templates/blob/master/hot/lb_server.yaml).
+
+parameters:
+  flavor:
+    type: string
+    description: Flavor for the instance to be created.
+  image:
+    type: string
+    description: Name or ID of the image to use for the instance.
+  key_name:
+    type: string
+    description: Name or ID of the SSH key to login to the instance.
+  pool_id:
+    type: string
+    description: LB pool to contact
+  protocol_port:
+    type: number
+    description: LB pool to contact
+  user_data:
+    type: string
+    description: Nova instance user_data
+  metadata:
+    type: json
+  network:
+    type: string
+    description: Name or ID of the network where to deploy the instance.
+  subnet:
+    type: string
+    description: Name or ID of the subnet where to deploy the instance.
+  sec_group:
+    type: string
+    description: Name or ID of the security group of the instance.
+  scheduler_hints:
+    type: json
+    default: {}
+
+resources:
+  instance:
+    type: OS::Nova::Server
+    properties:
+      name:
+        str_replace:
+          template: "nova-instance-$random"
+          params:
+            $random: {get_resource: random_string}
+      flavor: {get_param: flavor}
+      image: {get_param: image}
+      key_name: {get_param: key_name}
+      metadata: {get_param: metadata}
+      user_data: {get_param: user_data}
+      user_data_format: RAW
+      networks:
+        - network: {get_param: network}
+      security_groups:
+        - {get_param: sec_group}
+      scheduler_hints: {get_param: scheduler_hints}
+
+  lb_member:
+    type: OS::Octavia::PoolMember
+    properties:
+      pool: {get_param: pool_id}
+      address: {get_attr: [instance, first_address]}
+      protocol_port: {get_param: protocol_port}
+      subnet: {get_param: subnet}
+
+  random_string:
+    type: OS::Heat::RandomString
+    properties:
+      length: 8
+
+outputs:
+  instance_ip:
+    description: IP Address of the load-balanced instance.
+    value: {get_attr: [instance, first_address]}
+
+  lb_member_details:
+    description: LB member details.
+    value: {get_attr: [lb_member, show]}

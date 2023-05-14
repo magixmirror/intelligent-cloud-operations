@@ -2,8 +2,7 @@
 # additional groups are for more control of the environment.
 [control]
 # These hostname must be resolvable from your deployment host
-### TO BE FILLED ###
-<CONTROLLER-NODE-HOSTNAME> ansible_connection=local ansible_become=true ansible_user=<USER> network_interface=<NET-IF-1> neutron_external_interface=<NET-IF-2>
+<TO BE FILLED> ansible_connection=local ansible_become=true ansible_user=stack network_interface=br0 neutron_external_interface=veth2
 
 # The above can also be specified as follows:
 #control[01:03]     ansible_user=kolla
@@ -13,8 +12,10 @@
 [network:children]
 control
 
-[compute:children]
-control
+[compute]
+<TO BE FILLED> ansible_connection=local ansible_become=true ansible_user=stack network_interface=br0 neutron_external_interface=veth2
+<TO BE FILLED> ansible_become=true ansible_user=stack network_interface=br0 neutron_external_interface=veth2
+<TO BE FILLED> ansible_become=true ansible_user=stack network_interface=br0 neutron_external_interface=veth2
 
 [monitoring:children]
 control
@@ -26,6 +27,7 @@ control
 
 [storage:children]
 control
+compute
 
 [deployment]
 localhost       ansible_connection=local
@@ -50,16 +52,6 @@ compute
 storage
 monitoring
 
-[chrony-server:children]
-haproxy
-
-[chrony:children]
-control
-network
-compute
-storage
-monitoring
-
 [collectd:children]
 compute
 
@@ -78,9 +70,6 @@ monitoring
 [kafka:children]
 control
 
-[karbor:children]
-control
-
 [kibana:children]
 control
 
@@ -94,7 +83,13 @@ storage
 [elasticsearch:children]
 control
 
-[haproxy:children]
+[hacluster:children]
+control
+
+[hacluster-remote:children]
+compute
+
+[loadbalancer:children]
 network
 
 [mariadb:children]
@@ -175,9 +170,6 @@ control
 [magnum:children]
 control
 
-[qinling:children]
-control
-
 [sahara:children]
 control
 
@@ -197,9 +189,6 @@ control
 control
 compute
 
-[panko:children]
-control
-
 [gnocchi:children]
 control
 
@@ -209,26 +198,13 @@ control
 [trove:children]
 control
 
-# Tempest
-[tempest:children]
-control
-
 [senlin:children]
-control
-
-[vmtp:children]
 control
 
 [vitrage:children]
 control
 
 [watcher:children]
-control
-
-[rally:children]
-control
-
-[searchlight:children]
 control
 
 [octavia:children]
@@ -282,6 +258,13 @@ common
 [elasticsearch-curator:children]
 elasticsearch
 
+[opensearch:children]
+control
+
+# Opensearch dashboards
+[opensearch-dashboards:children]
+opensearch
+
 # Glance
 [glance-api:children]
 glance
@@ -326,6 +309,7 @@ neutron
 
 [neutron-ovn-metadata-agent:children]
 compute
+network
 
 [neutron-bgp-dragent:children]
 neutron
@@ -374,16 +358,6 @@ ironic
 
 [tgtd:children]
 storage
-
-# Karbor
-[karbor-api:children]
-karbor
-
-[karbor-protection:children]
-karbor
-
-[karbor-operationengine:children]
-karbor
 
 # Manila
 [manila-api:children]
@@ -451,12 +425,6 @@ monasca-agent
 [monasca-api:children]
 monasca
 
-[monasca-grafana:children]
-monasca
-
-[monasca-log-transformer:children]
-monasca
-
 [monasca-log-persister:children]
 monasca
 
@@ -489,10 +457,10 @@ ironic
 [ironic-inspector:children]
 ironic
 
-[ironic-pxe:children]
+[ironic-tftp:children]
 ironic
 
-[ironic-ipxe:children]
+[ironic-http:children]
 ironic
 
 # Magnum
@@ -501,13 +469,6 @@ magnum
 
 [magnum-conductor:children]
 magnum
-
-# Qinling
-[qinling-api:children]
-qinling
-
-[qinling-engine:children]
-qinling
 
 # Sahara
 [sahara-api:children]
@@ -584,10 +545,6 @@ compute
 [cyborg-conductor:children]
 cyborg
 
-# Panko
-[panko-api:children]
-panko
-
 # Gnocchi
 [gnocchi-api:children]
 gnocchi
@@ -635,13 +592,6 @@ senlin
 
 [senlin-health-manager:children]
 senlin
-
-# Searchlight
-[searchlight-api:children]
-searchlight
-
-[searchlight-listener:children]
-searchlight
 
 # Octavia
 [octavia-api:children]
@@ -748,7 +698,7 @@ storage
 mariadb
 
 [prometheus-haproxy-exporter:children]
-haproxy
+loadbalancer
 
 [prometheus-memcached-exporter:children]
 memcached
@@ -768,9 +718,16 @@ monitoring
 
 [prometheus-elasticsearch-exporter:children]
 elasticsearch
+opensearch
 
 [prometheus-blackbox-exporter:children]
 monitoring
+
+[prometheus-libvirt-exporter:children]
+compute
+
+[prometheus-msteams:children]
+prometheus-alertmanager
 
 [masakari-api:children]
 control
@@ -778,7 +735,10 @@ control
 [masakari-engine:children]
 control
 
-[masakari-monitors:children]
+[masakari-hostmonitor:children]
+control
+
+[masakari-instancemonitor:children]
 compute
 
 [ovn-controller:children]

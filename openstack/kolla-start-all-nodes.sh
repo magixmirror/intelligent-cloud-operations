@@ -1,7 +1,6 @@
 #!/bin/bash
 
-set -e
-set -o pipefail
+set -eo pipefail
 
 octavia_config_dir="/etc/kolla/config/octavia"
 
@@ -18,7 +17,7 @@ else
 fi
 
 echo "Starting OpenStack deployment..."
-kolla-ansible -i ansible/multinode deploy --yes-i-really-really-mean-it
+kolla-ansible -i ansible/multinode -e "@ansible/extra_vars.yml" deploy --yes-i-really-really-mean-it
 echo "Done."
 
 echo "Generating /etc/kolla/*-openrc.sh..."
@@ -27,3 +26,4 @@ sudo chmod g+r /etc/kolla/*-openrc.sh
 echo "Done."
 
 ./monasca-setup.sh
+./register-amphora-image.sh

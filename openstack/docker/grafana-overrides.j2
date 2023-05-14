@@ -1,0 +1,7 @@
+{% extends parent_template %}
+
+{% block grafana_plugins_install %}
+RUN grafana-cli plugins install gnocchixyz-gnocchi-datasource \
+    && grafana-cli --pluginUrl https://opendev.org/openstack/monasca-grafana-datasource/archive/master.zip \
+        plugins install monasca-datasource
+{% endblock %}
