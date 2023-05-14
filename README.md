@@ -29,7 +29,7 @@ testing environment. The test-bed used for our experiments was composed by:
 
 ### Data
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6509678.svg)](https://doi.org/10.5281/zenodo.6509678)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.6509677.svg)](https://doi.org/10.5281/zenodo.6509677)
 
 The data used for this work are publicly available. We recommend using our utility to automatically download, decompress
 and place such data in the location expected by our tools. To do that, make sure the required dependencies are installed
